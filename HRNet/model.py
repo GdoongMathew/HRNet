@@ -19,6 +19,38 @@ def exchange_unit(filters,
                   up_sample_method='bilinear',
                   fusion_method='add',
                   ):
+    """
+    Exchange unit, input filters will be down/up sampling and merge into different resolutions. In the third stage,
+    the highest resolution filters will be down sample twice, the first down sampled filters will be fused with the middle
+    resolution filters, and the second down sampled filters will be fused with the lowest ones.
+
+    HRF -> HRF-m -> HRF-l, MRF -> MRF-h, LRF -> LRF-m -> LRF-h
+                               -> MRF-l
+    Fusion process:
+    new_HRF = Fuse([HRF, MRF-h, LRF-h]),
+    new_MRF = Fuse([MRF, HRF-m, LRF-m]),
+    new_LRF = Fuse([LRF, HRF-l, MRF-l])
+
+    This implementation is a bit different with the original description in the paper.
+    Original description:
+    HRF -> HRF-m-1, HRF -> HRF-m-2 -> HRF-l
+    MRF -> MRF-l, MRF -> MRF-h
+    LRF -> LRF-m-1, LRF -> LRF-m-2 -> LRF-h
+
+    Fusion process:
+    new_HRF = Fuse([HRF, MRF-h, LRF-h]),
+    new_MRF = Fuse([MRF, LRF-m-1, HRF-m-1]),
+    new_LRF = Fuse([LRF, LRF-m-1, HRF-l])
+
+    :param filters:
+    :param down_sample: output a new lower resolution filters with doubling the number of channels
+    :param activation: activation method
+    :param data_format: channels_last as default
+    :param name: name of the layers
+    :param up_sample_method: upsampling method, can be bilinear, nearest, or conv2d_transpose
+    :param fusion_method: add, or concat
+    :return:
+    """
     assert isinstance(filters, (type, list))
     assert up_sample_method in ['nearest', 'bilinear', 'conv2d_transpose']
     assert fusion_method in ['add', 'concat']
@@ -75,13 +107,14 @@ def exchange_unit(filters,
             up_filters = _up_sample(up_filters, _name)
             tmp_filters[i - 1 - j] = up_filters
 
+        # tmp_filters should be like [high_resolution_filters, middle_resolution_filter, low_resolution_filters]
         output_filters.append(tmp_filters)
 
     def fusion_layer(_filters, layer_name='fusion'):
         if fusion_method == 'add':
             fused_filter = Add(name=f'{layer_name}_add')(_filters)
         else:
-            _c_num = _filters.shape[bn_axis]
+            _c_num = _filters[0].shape[bn_axis]
             fused_filter = Concatenate(axis=bn_axis, name=f'{layer_name}_concat')(_filters)
             fused_filter = Conv2D(_c_num, 1,
                                   padding='same',
@@ -93,6 +126,7 @@ def exchange_unit(filters,
 
     if len(filters) != 1:
         final_filters = []
+        # fusing filters with the same size.
         for i, same_filters in enumerate(zip(*output_filters)):
             fusion_name = f'{name}_fusion_{i}'
             same_filter = fusion_layer(same_filters, layer_name=fusion_name)
@@ -180,9 +214,11 @@ def hr_net(input_shape=(512, 512, 3),
            data_format='channels_last',
            initial_channels=32,
            up_sample_method='bilinear',
+           fusion_method='add',
            name='HRNet'):
 
     assert up_sample_method in ['nearest', 'bilinear', 'conv2d_transpose']
+    assert fusion_method in ['add', 'concat']
 
     ini_inputs = Input(shape=input_shape)
     bn_axis = 3 if data_format == 'channels_last' else 1
@@ -205,6 +241,7 @@ def hr_net(input_shape=(512, 512, 3),
                                down_sample=True,
                                activation=activation,
                                data_format=data_format,
+                               fusion_method=fusion_method,
                                name='stage1_exchangeunit_1')
 
     # Stage 2
@@ -218,6 +255,7 @@ def hr_net(input_shape=(512, 512, 3),
                                      down_sample=True,
                                      activation=activation,
                                      data_format=data_format,
+                                     fusion_method=fusion_method,
                                      name='stage2_exchangeunit_2')
 
     # Stage 3
@@ -232,6 +270,7 @@ def hr_net(input_shape=(512, 512, 3),
                                              down_sample=False,
                                              activation=activation,
                                              data_format=data_format,
+                                             fusion_method=fusion_method,
                                              name=f'stage3_exchangeunit_{i + 1}')
 
         else:
@@ -239,6 +278,7 @@ def hr_net(input_shape=(512, 512, 3),
                                                    down_sample=True,
                                                    activation=activation,
                                                    data_format=data_format,
+                                                   fusion_method=fusion_method,
                                                    name=f'stage3_exchangeunit_{i + 1}')
 
     # Stage 4
@@ -253,6 +293,7 @@ def hr_net(input_shape=(512, 512, 3),
                                                down_sample=False,
                                                activation=activation,
                                                data_format=data_format,
+                                               fusion_method=fusion_method,
                                                name=f'stage4_exchangeunit_{i + 1}')
 
     # Stage 4 final output
