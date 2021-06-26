@@ -34,7 +34,7 @@ def exchange_unit(filters,
                           strides=2,
                           padding='same',
                           data_format=data_format,
-                          name=f'{_name}_conv2d')
+                          name=f'{_name}_conv2d')(_filters)
         _filters = BatchNormalization(axis=bn_axis, name=f'{_name}_bn')(_filters)
         return _filters
 
@@ -66,12 +66,12 @@ def exchange_unit(filters,
 
         up_filters = down_filters = _filter
         for j in range(down_times):
-            _name = f'{name}_downsample_{j}'
+            _name = f'{name}_downsample_{i}_{j}'
             down_filters = _down_sample(down_filters, _name)
             tmp_filters[j + i + 1] = down_filters
 
         for j in range(up_times):
-            _name = f'{name}_upsample_{j}'
+            _name = f'{name}_upsample_{i}_{j}'
             up_filters = _up_sample(up_filters, _name)
             tmp_filters[i - 1 - j] = up_filters
 
@@ -79,21 +79,21 @@ def exchange_unit(filters,
 
     def fusion_layer(_filters, layer_name='fusion'):
         if fusion_method == 'add':
-            _filters = Add(name=f'{layer_name}_add')(_filters)
+            fused_filter = Add(name=f'{layer_name}_add')(_filters)
         else:
             _c_num = _filters.shape[bn_axis]
-            _filters = Concatenate(axis=bn_axis, name=f'{layer_name}_concat')(_filters)
-            _filters = Conv2D(_c_num, 1,
-                              padding='same',
-                              data_format=data_format,
-                              name=f'{layer_name}_conv2d')(_filters)
-            _filters = BatchNormalization(axis=bn_axis, name=f'{layer_name}_bn')(_filters)
-        _filters = Activation(activation=activation, name=f'{layer_name}_{activation}')(_filters)
-        return _filters
+            fused_filter = Concatenate(axis=bn_axis, name=f'{layer_name}_concat')(_filters)
+            fused_filter = Conv2D(_c_num, 1,
+                                  padding='same',
+                                  data_format=data_format,
+                                  name=f'{layer_name}_conv2d')(fused_filter)
+            fused_filter = BatchNormalization(axis=bn_axis, name=f'{layer_name}_bn')(fused_filter)
+        fused_filter = Activation(activation=activation, name=f'{layer_name}_{activation}')(fused_filter)
+        return fused_filter
 
     if len(filters) != 1:
         final_filters = []
-        for i, same_filters in enumerate(zip(output_filters)):
+        for i, same_filters in enumerate(zip(*output_filters)):
             fusion_name = f'{name}_fusion_{i}'
             same_filter = fusion_layer(same_filters, layer_name=fusion_name)
             final_filters.append(same_filter)
@@ -123,6 +123,7 @@ def basic_block(filters,
                              name=f'{name}_{activation}_{i}_1')(filters)
 
         filters = Conv2D(channel_num, 3,
+                         padding='same',
                          data_format=data_format,
                          name=f'{name}_conv2d_{i}_2')(filters)
         filters = BatchNormalization(axis=bn_axis, name=f'{name}_bn_{i}_2')(filters)
@@ -255,9 +256,18 @@ def hr_net(input_shape=(512, 512, 3),
                                                name=f'stage4_exchangeunit_{i + 1}')
 
     # Stage 4 final output
-    r2_x = UpSampling2D(size=(2, 2), interpolation='bilinear', data_format=data_format, name=f'stage4_output_upsample2d')
-    r3_x = UpSampling2D(size=(4, 4), interpolation='bilinear', data_format=data_format, name=f'stage4_output_upsample2d')
-    r4_x = UpSampling2D(size=(8, 8), interpolation='bilinear', data_format=data_format, name=f'stage4_output_upsample2d')
+    r2_x = UpSampling2D(size=(2, 2),
+                        interpolation='bilinear',
+                        data_format=data_format,
+                        name=f'stage4_2r_output_upsample2d')(r2_x)
+    r3_x = UpSampling2D(size=(4, 4),
+                        interpolation='bilinear',
+                        data_format=data_format,
+                        name=f'stage4_3r_output_upsample2d')(r3_x)
+    r4_x = UpSampling2D(size=(8, 8),
+                        interpolation='bilinear',
+                        data_format=data_format,
+                        name=f'stage4_4r_output_upsample2d')(r4_x)
 
     x = Concatenate(axis=bn_axis)([r1_x, r2_x, r3_x, r4_x])
     n_channels = x.shape[bn_axis]
