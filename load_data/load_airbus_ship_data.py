@@ -8,7 +8,7 @@ import os
 AUTO = tf.data.AUTOTUNE
 
 
-def decode_data(img_folder, df):
+def decode_data(img_folder, df, train_shape):
 
     def _decode_str(name):
         name = name.decode('utf-8')
@@ -34,6 +34,12 @@ def decode_data(img_folder, df):
         img, mask, w, h = tf.numpy_function(_decode_str, [tf_data, ], [tf.uint8, tf.uint8, tf.int32, tf.int32])
         img = tf.reshape(img, (w, h, 3))
         mask = tf.reshape(mask, (w, h, 1))
+
+        if train_shape is not None:
+            img = tf.image.resize(img, train_shape, method='bilinear')
+            img = tf.cast(img, tf.uint8)
+            mask = tf.image.resize(mask, train_shape, method='nearest')
+
         return img, mask
 
     return _decode_data
@@ -69,6 +75,7 @@ def augmentation():
 def load_csv_data(root_dir,
                   remove_empty=True,
                   batch_size=64,
+                  train_shape=None,
                   with_info=False):
     csv_path = os.path.join(root_dir, 'train_ship_segmentations_v2.csv')
     data_df = pd.read_csv(csv_path)
@@ -84,7 +91,7 @@ def load_csv_data(root_dir,
     train_ds = (tf.data.Dataset.from_tensor_slices(train_names)
                 .shuffle(len(train_names))
                 .repeat()
-                .map(decode_data(train_path, train_df), num_parallel_calls=AUTO)
+                .map(decode_data(train_path, train_df, train_shape), num_parallel_calls=AUTO)
                 .batch(batch_size, drop_remainder=True)
                 .map(augmentation(), num_parallel_calls=AUTO)
                 .prefetch(AUTO)
@@ -92,7 +99,7 @@ def load_csv_data(root_dir,
 
     val_ds = (tf.data.Dataset.from_tensor_slices(val_names)
               .repeat()
-              .map(decode_data(train_path, val_df), num_parallel_calls=AUTO)
+              .map(decode_data(train_path, val_df, train_shape), num_parallel_calls=AUTO)
               .batch(batch_size, drop_remainder=True)
               .prefetch(AUTO)
               )
