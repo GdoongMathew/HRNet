@@ -325,9 +325,9 @@ def hr_net(input_shape=(512, 512, 3),
     x = Conv2D(num_classes, 1, padding='same')(x)
 
     if num_classes > 1:
-        x = Activation('softmax')(x)
+        x = Activation('softmax', dtype='float32')(x)
     else:
-        x = Activation('sigmoid')(x)
+        x = Activation('sigmoid', dtype='float32')(x)
 
     model = Model(inputs=ini_inputs, outputs=x, name=name)
     return model
