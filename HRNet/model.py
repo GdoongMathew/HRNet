@@ -322,8 +322,12 @@ def hr_net(input_shape=(512, 512, 3),
     x = BatchNormalization(axis=bn_axis)(x)
     x = Activation(activation=activation)(x)
 
-    x = Conv2D(num_classes, 1, padding='same', activation='relu')(x)
-    x = Activation('softmax')(x)
+    x = Conv2D(num_classes, 1, padding='same')(x)
+
+    if num_classes > 1:
+        x = Activation('softmax')(x)
+    else:
+        x = Activation('sigmoid')(x)
 
     model = Model(inputs=ini_inputs, outputs=x, name=name)
     return model
