@@ -1,4 +1,3 @@
-import tensorflow as tf
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import Conv2DTranspose
 from tensorflow.keras.layers import Add
