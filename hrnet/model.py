@@ -268,6 +268,21 @@ def HRNet(channel_list,
           fusion_method='add',
           weights=None,
           name='HRNet'):
+    """
+    Instantiate a HRNet using given channel list.
+    :param channel_list: a list of channels specifying number of channels in each branch.
+    :param input_shape: input shape
+    :param num_classes: number of classes.
+    :param activation: parameter passed into tf.Activation layer.
+    :param data_format: one of 'channels_last' or 'channels_first'
+    :param up_sample_method: one of 'bilinear', 'nearest', or 'conv2d_transpose'.
+                            'bilinear', 'nearest' will be passed into UpSample2D layer,
+                            'con2d_transpose' will use Conv2DTranspose as upsampling method.
+    :param fusion_method: one of 'add' or 'concat', use Add or Concatenate and Con2D to fuse filters.
+    :param weights: pretrained weight path
+    :param name: name of the model.
+    :return:
+    """
     assert up_sample_method in ['nearest', 'bilinear', 'conv2d_transpose']
     assert fusion_method in ['add', 'concat']
     assert isinstance(channel_list, (list, tuple))
@@ -399,3 +414,9 @@ def HRNet_W48(input_shape=(512, 512, 3),
                  weights=weights,
                  name='HRNet_W48',
                  **kwargs)
+
+
+setattr(HRNet_W18, '__doc__', HRNet.__doc__)
+setattr(HRNet_W32, '__doc__', HRNet.__doc__)
+setattr(HRNet_W40, '__doc__', HRNet.__doc__)
+setattr(HRNet_W48, '__doc__', HRNet.__doc__)
