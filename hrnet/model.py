@@ -330,21 +330,33 @@ def HRNet(channel_list,
     assert len(stage_4_filters) == 4
     r1_x, r2_x, r3_x, r4_x = stage_4_filters
 
+    r2_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r2_x)
+    r3_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r3_x)
+    r4_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r4_x)
+
     # Stage 4 final output
     r2_x = UpSampling2D(size=(2, 2),
                         interpolation='bilinear',
                         data_format=data_format,
                         name=f'stage4_2r_output_upsample2d')(r2_x)
+    r2_x = BatchNormalization(axis=bn_axis)(r2_x)
+
     r3_x = UpSampling2D(size=(4, 4),
                         interpolation='bilinear',
                         data_format=data_format,
                         name=f'stage4_3r_output_upsample2d')(r3_x)
+    r3_x = BatchNormalization(axis=bn_axis)(r3_x)
+
     r4_x = UpSampling2D(size=(8, 8),
                         interpolation='bilinear',
                         data_format=data_format,
                         name=f'stage4_4r_output_upsample2d')(r4_x)
+    r4_x = BatchNormalization(axis=bn_axis)(r4_x)
 
-    x = Concatenate(axis=bn_axis)([r1_x, r2_x, r3_x, r4_x])
+    if fusion_method == 'add':
+        x = Add()([r1_x, r2_x, r3_x, r4_x])
+    else:
+        x = Concatenate(axis=bn_axis)([r1_x, r2_x, r3_x, r4_x])
     n_channels = x.shape[bn_axis]
 
     if up_sample_method is not 'conv2d_transpose':
