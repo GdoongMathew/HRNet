@@ -12,6 +12,7 @@ from tensorflow.keras import Model
 
 
 def exchange_unit(filters,
+                  channel_list,
                   down_sample=False,
                   activation='relu',
                   data_format='channels_last',
@@ -43,6 +44,7 @@ def exchange_unit(filters,
     new_LRF = Fuse([LRF, LRF-m-1, HRF-l])
 
     :param filters:
+    :param channel_list: list of output channels numbers.
     :param down_sample: output a new lower resolution filters with doubling the number of channels
     :param activation: activation method
     :param data_format: channels_last as default
@@ -51,18 +53,19 @@ def exchange_unit(filters,
     :param fusion_method: add, or concat
     :return:
     """
-    assert isinstance(filters, (type, list))
+    assert isinstance(filters, (tuple, list))
     assert up_sample_method in ['nearest', 'bilinear', 'conv2d_transpose']
     assert fusion_method in ['add', 'concat']
+    assert isinstance(channel_list, (tuple, list))
     bn_axis = 3 if data_format == 'channels_last' else 1
     w_axis = 2 if data_format == 'channels_last' else 3
     num_outputs = len(filters) if not down_sample else len(filters) + 1
+    assert len(channel_list) == num_outputs
 
     filters = sorted(filters, key=lambda x: x.shape[w_axis], reverse=True)
 
-    def _down_sample(_filters, _name):
-        _c_num = _filters.shape[bn_axis]
-        _filters = Conv2D(_c_num * 2, 3,
+    def _down_sample(_filters, _ch_num, _name):
+        _filters = Conv2D(_ch_num, 3,
                           strides=2,
                           padding='same',
                           data_format=data_format,
@@ -70,18 +73,17 @@ def exchange_unit(filters,
         _filters = BatchNormalization(axis=bn_axis, name=f'{_name}_bn')(_filters)
         return _filters
 
-    def _up_sample(_filters, _name):
-        _c_num = _filters.shape[bn_axis]
+    def _up_sample(_filters, _ch_num, _name):
         _up_fn = UpSampling2D(interpolation=up_sample_method,
                               data_format=data_format,
                               name=f'{_name}_upsample2d') if up_sample_method in ['nearest', 'bilinear'] else \
-            Conv2DTranspose(_c_num // 2, 3,
+            Conv2DTranspose(_ch_num, 3,
                             strides=2,
                             padding='same',
                             data_format=data_format,
                             name=f'{_name}_conv2d_transpose')
 
-        _filters = Conv2D(_c_num // 2, 1,
+        _filters = Conv2D(_ch_num, 1,
                           padding='same',
                           data_format=data_format,
                           name=f'{_name}_conv2d')(_filters)
@@ -92,19 +94,23 @@ def exchange_unit(filters,
     output_filters = []
     for i, _filter in enumerate(filters):
         tmp_filters = [None] * num_outputs
-        tmp_filters[i] = _filter
+        if not _filter.shape[bn_axis] == channel_list[i]:
+            tmp_filters[i] = Conv2D(channel_list[i], 3, padding='same', data_format=data_format,
+                                    name=f'{name}_conv2d_{i}_changechannels')(_filter)
+        else:
+            tmp_filters[i] = _filter
         down_times = num_outputs - 1 - i
         up_times = i
 
         up_filters = down_filters = _filter
         for j in range(down_times):
             _name = f'{name}_downsample_{i}_{j}'
-            down_filters = _down_sample(down_filters, _name)
+            down_filters = _down_sample(down_filters, channel_list[j + i + 1], _name)
             tmp_filters[j + i + 1] = down_filters
 
         for j in range(up_times):
             _name = f'{name}_upsample_{i}_{j}'
-            up_filters = _up_sample(up_filters, _name)
+            up_filters = _up_sample(up_filters, channel_list[i - 1 - j], _name)
             tmp_filters[i - 1 - j] = up_filters
 
         # tmp_filters should be like [high_resolution_filters, middle_resolution_filter, low_resolution_filters]
@@ -138,16 +144,16 @@ def exchange_unit(filters,
 
 
 def basic_block(filters,
+                channels,
                 activation='relu',
                 data_format='channels_last',
                 units=4,
                 name='basic_block'):
     bn_axis = 3 if data_format == 'channels_last' else 1
-    channel_num = filters.shape[bn_axis]
 
     for i in range(units):
         residual = filters
-        filters = Conv2D(channel_num, 3,
+        filters = Conv2D(channels, 3,
                          padding='same',
                          data_format=data_format,
                          name=f'{name}_conv2d_{i}_1')(filters)
@@ -156,7 +162,7 @@ def basic_block(filters,
         filters = Activation(activation=activation,
                              name=f'{name}_{activation}_{i}_1')(filters)
 
-        filters = Conv2D(channel_num, 3,
+        filters = Conv2D(channels, 3,
                          padding='same',
                          data_format=data_format,
                          name=f'{name}_conv2d_{i}_2')(filters)
@@ -208,17 +214,64 @@ def bottleneck(filters,
     return filters
 
 
-def hr_net(input_shape=(512, 512, 3),
-           num_classes=20,
-           activation='relu',
-           data_format='channels_last',
-           initial_channels=32,
-           up_sample_method='bilinear',
-           fusion_method='add',
-           name='HRNet'):
+def stage_layers(filters, channel_list, num_iteration,
+                 make_branch=True,
+                 activation='relu',
+                 data_format='channels_last',
+                 fusion_method='add',
+                 name='stage'):
+    """
+    At the end of a stage layer, exchange unit will branch off with another lower resolution filter.
+    :param filters:
+    :param channel_list:
+    :param num_iteration:
+    :param downsample
+    :param activation:
+    :param data_format:
+    :param fusion_method:
+    :param name:
+    :return:
+    """
 
+    output_filters = filters
+    for i in range(num_iteration):
+        for j, f in enumerate(filters):
+            _block_name = f'{name}_{j + 1}r_basic_block_{i + 1}'
+            output_filters[j] = basic_block(f, channel_list[j], activation=activation, data_format=data_format, name=_block_name)
+        if not make_branch:
+            target_channels = channel_list
+            down_sample = make_branch
+        else:
+            if i == num_iteration - 1:
+                target_channels = channel_list
+                down_sample = True
+            else:
+                target_channels = channel_list[:-1]
+                down_sample = False
+        output_filters = exchange_unit(output_filters,
+                                       target_channels,
+                                       down_sample=down_sample,
+                                       activation=activation,
+                                       data_format=data_format,
+                                       fusion_method=fusion_method,
+                                       name=f'{name}_exchangeunit_{i + 1}')
+
+    return output_filters
+
+
+def HRNet(channel_list,
+          input_shape=(512, 512, 3),
+          num_classes=20,
+          activation='relu',
+          data_format='channels_last',
+          up_sample_method='bilinear',
+          fusion_method='add',
+          weights=None,
+          name='HRNet'):
     assert up_sample_method in ['nearest', 'bilinear', 'conv2d_transpose']
     assert fusion_method in ['add', 'concat']
+    assert isinstance(channel_list, (list, tuple))
+    assert len(channel_list) >= 2
 
     ini_inputs = Input(shape=input_shape)
     bn_axis = 3 if data_format == 'channels_last' else 1
@@ -236,8 +289,9 @@ def hr_net(input_shape=(512, 512, 3),
         bottle_name = f'bottleneck_{i}'
         x = bottleneck(x, add_residual=i == 0, name=bottle_name)
 
-    x = Conv2D(initial_channels, 3, padding='same', data_format=data_format)(x)
+    # x = Conv2D(64, 3, padding='same', data_format=data_format)(x)
     r1_x, r2_x = exchange_unit([x],
+                               channel_list[:2],
                                down_sample=True,
                                activation=activation,
                                data_format=data_format,
@@ -245,56 +299,22 @@ def hr_net(input_shape=(512, 512, 3),
                                name='stage1_exchangeunit_1')
 
     # Stage 2
-    # 1 resolution subnetwork
-    r1_x = basic_block(r1_x, activation=activation, data_format=data_format, name='stage2_1r_basic_block_1')
-
-    # 2 resolution subnetwork
-    r2_x = basic_block(r2_x, activation=activation, data_format=data_format, name='stage2_2r_basic_block_1')
-
-    r1_x, r2_x, r3_x = exchange_unit([r1_x, r2_x],
-                                     down_sample=True,
-                                     activation=activation,
-                                     data_format=data_format,
-                                     fusion_method=fusion_method,
-                                     name='stage2_exchangeunit_2')
+    num_iter = 1
+    stage_2_filters = stage_layers([r1_x, r2_x], channel_list[:3], num_iter,
+                                   activation=activation, data_format=data_format, fusion_method=fusion_method, name='stage2')
 
     # Stage 3
     num_iter = 4
-    for i in range(num_iter):
-        r1_x = basic_block(r1_x, activation=activation, data_format=data_format, name=f'stage3_1r_basic_block_{i + 1}')
-        r2_x = basic_block(r2_x, activation=activation, data_format=data_format, name=f'stage3_2r_basic_block_{i + 1}')
-        r3_x = basic_block(r3_x, activation=activation, data_format=data_format, name=f'stage3_3r_basic_block_{i + 1}')
-
-        if i != num_iter - 1:
-            r1_x, r2_x, r3_x = exchange_unit([r1_x, r2_x, r3_x],
-                                             down_sample=False,
-                                             activation=activation,
-                                             data_format=data_format,
-                                             fusion_method=fusion_method,
-                                             name=f'stage3_exchangeunit_{i + 1}')
-
-        else:
-            r1_x, r2_x, r3_x, r4_x = exchange_unit([r1_x, r2_x, r3_x],
-                                                   down_sample=True,
-                                                   activation=activation,
-                                                   data_format=data_format,
-                                                   fusion_method=fusion_method,
-                                                   name=f'stage3_exchangeunit_{i + 1}')
+    stage_3_filters = stage_layers(stage_2_filters, channel_list, num_iter,
+                                   activation=activation, data_format=data_format, fusion_method=fusion_method, name='stage3')
 
     # Stage 4
     num_iter = 2
-    for i in range(num_iter):
-        r1_x = basic_block(r1_x, activation=activation, data_format=data_format, name=f'stage4_1r_basic_block_{i + 1}')
-        r2_x = basic_block(r2_x, activation=activation, data_format=data_format, name=f'stage4_2r_basic_block_{i + 1}')
-        r3_x = basic_block(r3_x, activation=activation, data_format=data_format, name=f'stage4_3r_basic_block_{i + 1}')
-        r4_x = basic_block(r4_x, activation=activation, data_format=data_format, name=f'stage4_rr_basic_block_{i + 1}')
+    stage_4_filters = stage_layers(stage_3_filters, channel_list, num_iter, make_branch=False,
+                                   activation=activation, data_format=data_format, fusion_method=fusion_method, name='stage4')
 
-        r1_x, r2_x, r3_x, r4_x = exchange_unit([r1_x, r2_x, r3_x, r4_x],
-                                               down_sample=False,
-                                               activation=activation,
-                                               data_format=data_format,
-                                               fusion_method=fusion_method,
-                                               name=f'stage4_exchangeunit_{i + 1}')
+    assert len(stage_4_filters) == 4
+    r1_x, r2_x, r3_x, r4_x = stage_4_filters
 
     # Stage 4 final output
     r2_x = UpSampling2D(size=(2, 2),
@@ -330,4 +350,52 @@ def hr_net(input_shape=(512, 512, 3),
         x = Activation('sigmoid', dtype='float32')(x)
 
     model = Model(inputs=ini_inputs, outputs=x, name=name)
+
+    if weights is not None:
+        model.load_weights(weights)
+
     return model
+
+
+def HRNet_W18(input_shape=(512, 512, 3),
+              num_classes=20,
+              weights=None, **kwargs):
+    return HRNet([18, 36, 72, 144],
+                 input_shape=input_shape,
+                 num_classes=num_classes,
+                 weights=weights,
+                 name='HRNet_W18',
+                 **kwargs)
+
+
+def HRNet_W32(input_shape=(512, 512, 3),
+              num_classes=20,
+              weights=None, **kwargs):
+    return HRNet([32, 64, 128, 256],
+                 input_shape=input_shape,
+                 num_classes=num_classes,
+                 weights=weights,
+                 name='HRNet_W32',
+                 **kwargs)
+
+
+def HRNet_W40(input_shape=(512, 512, 3),
+              num_classes=20,
+              weights=None, **kwargs):
+    return HRNet([40, 80, 160, 320],
+                 input_shape=input_shape,
+                 num_classes=num_classes,
+                 weights=weights,
+                 name='HRNet_W40',
+                 **kwargs)
+
+
+def HRNet_W48(input_shape=(512, 512, 3),
+              num_classes=20,
+              weights=None, **kwargs):
+    return HRNet([48, 96, 192, 384],
+                 input_shape=input_shape,
+                 num_classes=num_classes,
+                 weights=weights,
+                 name='HRNet_W48',
+                 **kwargs)
