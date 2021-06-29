@@ -234,9 +234,12 @@ def stage_layers(filters, channel_list, num_iteration,
 
     output_filters = filters
     for i in range(num_iteration):
-        for j, f in enumerate(filters):
+        for j, f in enumerate(output_filters):
             _block_name = f'{name}_{j + 1}r_basic_block_{i + 1}'
-            output_filters[j] = basic_block(f, channel_list[j], activation=activation, data_format=data_format, name=_block_name)
+            output_filters[j] = basic_block(f, channel_list[j],
+                                            activation=activation,
+                                            data_format=data_format,
+                                            name=_block_name)
         if not make_branch:
             target_channels = channel_list
             down_sample = make_branch
@@ -330,6 +333,15 @@ def HRNet(channel_list,
     assert len(stage_4_filters) == 4
     r1_x, r2_x, r3_x, r4_x = stage_4_filters
 
+    r1_x = basic_block(r1_x, channel_list[0], activation=activation,
+                       data_format=data_format, name='stage4_1r_basic_block_final')
+    r2_x = basic_block(r2_x, channel_list[1], activation=activation,
+                       data_format=data_format, name='stage4_2r_basic_block_final')
+    r3_x = basic_block(r3_x, channel_list[2], activation=activation,
+                       data_format=data_format, name='stage4_3r_basic_block_final')
+    r4_x = basic_block(r4_x, channel_list[3], activation=activation,
+                       data_format=data_format, name='stage4_4r_basic_block_final')
+
     r2_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r2_x)
     r3_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r3_x)
     r4_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r4_x)
@@ -368,12 +380,12 @@ def HRNet(channel_list,
     x = BatchNormalization(axis=bn_axis)(x)
     x = Activation(activation=activation)(x)
 
-    x = Conv2D(num_classes, 1, padding='same')(x)
-
-    if num_classes > 1:
-        x = Activation('softmax', dtype='float32')(x)
-    else:
+    if num_classes == 2:
+        x = Conv2D(1, 1, padding='same')(x)
         x = Activation('sigmoid', dtype='float32')(x)
+    else:
+        x = Conv2D(num_classes, 1, padding='same')(x)
+        x = Activation('softmax', dtype='float32')(x)
 
     model = Model(inputs=ini_inputs, outputs=x, name=name)
 
