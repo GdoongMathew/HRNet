@@ -333,52 +333,69 @@ def HRNet(channel_list,
     assert len(stage_4_filters) == 4
     r1_x, r2_x, r3_x, r4_x = stage_4_filters
 
-    r1_x = basic_block(r1_x, channel_list[0], activation=activation,
+    r1_x = basic_block(r1_x, channel_list[0], activation=activation, units=4,
                        data_format=data_format, name='stage4_1r_basic_block_final')
-    r2_x = basic_block(r2_x, channel_list[1], activation=activation,
+    r2_x = basic_block(r2_x, channel_list[1], activation=activation, units=4,
                        data_format=data_format, name='stage4_2r_basic_block_final')
-    r3_x = basic_block(r3_x, channel_list[2], activation=activation,
+    r3_x = basic_block(r3_x, channel_list[2], activation=activation, units=4,
                        data_format=data_format, name='stage4_3r_basic_block_final')
-    r4_x = basic_block(r4_x, channel_list[3], activation=activation,
+    r4_x = basic_block(r4_x, channel_list[3], activation=activation, units=4,
                        data_format=data_format, name='stage4_4r_basic_block_final')
 
-    r2_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r2_x)
-    r3_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r3_x)
-    r4_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r4_x)
+    if up_sample_method in ['bilinear' or 'nearest']:
+        r2_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r2_x)
+        r3_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r3_x)
+        r4_x = Conv2D(channel_list[0], 1, padding='same', data_format=data_format)(r4_x)
 
-    # Stage 4 final output
-    r2_x = UpSampling2D(size=(2, 2),
-                        interpolation='bilinear',
-                        data_format=data_format,
-                        name=f'stage4_2r_output_upsample2d')(r2_x)
+        # Stage 4 final output
+        r2_x = UpSampling2D(size=(2, 2),
+                            interpolation='bilinear',
+                            data_format=data_format,
+                            name=f'stage4_2r_output_upsample2d')(r2_x)
+
+        r3_x = UpSampling2D(size=(4, 4),
+                            interpolation='bilinear',
+                            data_format=data_format,
+                            name=f'stage4_3r_output_upsample2d')(r3_x)
+
+        r4_x = UpSampling2D(size=(8, 8),
+                            interpolation='bilinear',
+                            data_format=data_format,
+                            name=f'stage4_4r_output_upsample2d')(r4_x)
+    else:
+        r2_x = Conv2DTranspose(channel_list[0], 3,
+                               strides=2,
+                               padding='same',
+                               data_format=data_format,
+                               name='stage4_2r_output_conv2dtranspose')(r2_x)
+
+        r3_x = Conv2DTranspose(channel_list[0], 3,
+                               strides=4,
+                               padding='same',
+                               data_format=data_format,
+                               name='stage4_2r_output_conv2dtranspose')(r3_x)
+
+        r4_x = Conv2DTranspose(channel_list[0], 3,
+                               strides=8,
+                               padding='same',
+                               data_format=data_format,
+                               name='stage4_2r_output_conv2dtranspose')(r4_x)
+
     r2_x = BatchNormalization(axis=bn_axis)(r2_x)
-
-    r3_x = UpSampling2D(size=(4, 4),
-                        interpolation='bilinear',
-                        data_format=data_format,
-                        name=f'stage4_3r_output_upsample2d')(r3_x)
     r3_x = BatchNormalization(axis=bn_axis)(r3_x)
-
-    r4_x = UpSampling2D(size=(8, 8),
-                        interpolation='bilinear',
-                        data_format=data_format,
-                        name=f'stage4_4r_output_upsample2d')(r4_x)
     r4_x = BatchNormalization(axis=bn_axis)(r4_x)
 
     if fusion_method == 'add':
         x = Add()([r1_x, r2_x, r3_x, r4_x])
     else:
         x = Concatenate(axis=bn_axis)([r1_x, r2_x, r3_x, r4_x])
-    n_channels = x.shape[bn_axis]
-
-    if up_sample_method is not 'conv2d_transpose':
-        x = UpSampling2D(interpolation=up_sample_method, data_format=data_format)(x)
-        x = Conv2D(n_channels, 3, padding='same', data_format=data_format)(x)
-    else:
-        x = Conv2DTranspose(n_channels, 3, strides=2, padding='same', data_format=data_format)(x)
+        x = Conv2D(channel_list[0], 1,
+                   padding='same',
+                   data_format=data_format)(x)
 
     x = BatchNormalization(axis=bn_axis)(x)
     x = Activation(activation=activation)(x)
+    x = UpSampling2D(2, data_format=data_format, interpolation='bilinear')(x)
 
     if num_classes == 2:
         x = Conv2D(1, 1, padding='same')(x)
