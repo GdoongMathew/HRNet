@@ -98,7 +98,6 @@ def load_csv_data(root_dir,
                 )
 
     val_ds = (tf.data.Dataset.from_tensor_slices(val_names)
-              .repeat()
               .map(decode_data(train_path, val_df, train_shape), num_parallel_calls=AUTO)
               .batch(batch_size, drop_remainder=True)
               .prefetch(AUTO)
