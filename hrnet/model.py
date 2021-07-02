@@ -381,10 +381,6 @@ def HRNet(channel_list,
                                data_format=data_format,
                                name='stage4_2r_output_conv2dtranspose')(r4_x)
 
-    r2_x = BatchNormalization(axis=bn_axis)(r2_x)
-    r3_x = BatchNormalization(axis=bn_axis)(r3_x)
-    r4_x = BatchNormalization(axis=bn_axis)(r4_x)
-
     if fusion_method == 'add':
         x = Add()([r1_x, r2_x, r3_x, r4_x])
     else:
@@ -423,6 +419,17 @@ def HRNet_W18(input_shape=(512, 512, 3),
                  **kwargs)
 
 
+def HRNet_W24(input_shape=(512, 512, 3),
+              num_classes=20,
+              weights=None, **kwargs):
+    return HRNet([24, 48, 96, 192],
+                 input_shape=input_shape,
+                 num_classes=num_classes,
+                 weights=weights,
+                 name='HRNet_W24',
+                 **kwargs)
+
+
 def HRNet_W32(input_shape=(512, 512, 3),
               num_classes=20,
               weights=None, **kwargs):
@@ -457,6 +464,7 @@ def HRNet_W48(input_shape=(512, 512, 3),
 
 
 setattr(HRNet_W18, '__doc__', HRNet.__doc__)
+setattr(HRNet_W24, '__doc__', HRNet.__doc__)
 setattr(HRNet_W32, '__doc__', HRNet.__doc__)
 setattr(HRNet_W40, '__doc__', HRNet.__doc__)
 setattr(HRNet_W48, '__doc__', HRNet.__doc__)
