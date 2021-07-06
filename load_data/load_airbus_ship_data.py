@@ -1,4 +1,5 @@
 from sklearn.model_selection import train_test_split
+from imgaug import augmenters as iaa
 import tensorflow as tf
 import numpy as np
 import pandas as pd
@@ -45,7 +46,7 @@ def decode_data(img_folder, df, train_shape):
     return _decode_data
 
 
-def augmentation():
+def batch_augmentation():
 
     aug = tf.keras.Sequential([
         tf.keras.layers.experimental.preprocessing.RandomTranslation(0.2,
@@ -67,9 +68,31 @@ def augmentation():
         tmp = tf.concat([img, mask], axis=-1)
         tmp = aug(tmp, training=True)
         img = tmp[:, :, :, :img_chn]
+
         mask = tmp[:, :, :, img_chn:]
         return img, mask
     return _aug_fn
+
+
+def numpy_augmentation(img, mask):
+
+    @ tf.function
+    def _aug(_img, _mask):
+        _img = tf.keras.preprocessing.image.random_brightness(_img, (-0.2, 0.2))
+
+        _img_shape = _img.shape
+        _mask_shape = _mask.shape
+
+        _img = np.concatenate([_img, _mask], axis=-1)
+        _img = tf.keras.preprocessing.image.random_shift(_img, 0.3, 0.3, channel_axis=3, fill_mode='constant')
+
+        _img, _mask = _img[:, :, :_img_shape[-1]], _img[:, :, _mask_shape[-1]:]
+        return _img, _mask
+
+    img_dtype = img.dtype
+    mask_dtype = mask.dtype
+    img, mask = tf.numpy_function(_aug, [img, mask], [img_dtype, mask_dtype])
+    return img, mask
 
 
 def load_csv_data(root_dir,
@@ -92,8 +115,9 @@ def load_csv_data(root_dir,
                 .shuffle(len(train_names))
                 .repeat()
                 .map(decode_data(train_path, train_df, train_shape), num_parallel_calls=AUTO)
+                .map(numpy_augmentation, num_parallel_calls=AUTO)
                 .batch(batch_size, drop_remainder=True)
-                .map(augmentation(), num_parallel_calls=AUTO)
+                .map(batch_augmentation(), num_parallel_calls=AUTO)
                 .prefetch(AUTO)
                 )
 
