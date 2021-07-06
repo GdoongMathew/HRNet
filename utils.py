@@ -61,7 +61,7 @@ class DiceFocalLoss(Loss):
         y_pred = tf.cast(y_pred > 0.5, tf.float32)
         y_true = tf.cast(y_true, tf.float32)
         intersection = K.sum(K.abs(y_true * y_pred), axis=-1)
-        return 1 - (2. * intersection + smooth) / (K.sum(K.square(y_true), -1) + K.sum(K.square(y_pred), -1) + smooth)
+        return 1 - (2 * intersection + smooth) / (K.sum(y_true) + K.sum(y_pred) + smooth)
 
     def call(self, y_true, y_pred):
         return self.alpha * self.focal_loss(y_true, y_pred) + self.dice_loss(y_true, y_pred)
