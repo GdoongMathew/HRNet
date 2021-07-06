@@ -1,5 +1,6 @@
-import tensorflow as tf
 from tensorflow.keras.losses import Loss
+import tensorflow.keras.backend as K
+import tensorflow as tf
 import numpy as np
 import math
 
@@ -49,23 +50,20 @@ class DiceFocalLoss(Loss):
         super(DiceFocalLoss, self).__init__(*args, **kwargs)
 
     def focal_loss(self, y_true, y_pred):
-        bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-        bce_exp = tf.exp(-bce)
-        focal_loss = tf.reduce_mean(self.focal_alpha * tf.pow((1 - bce_exp), self.focal_gamma) * bce)
+        y_true = K.cast(y_true, K.floatx())
+        bce = K.binary_crossentropy(y_true, y_pred)
+        bce_exp = K.exp(-bce)
+        focal_loss = K.mean(self.focal_alpha * K.pow((1 - bce_exp), self.focal_gamma) * bce)
         return focal_loss
 
     def dice_loss(self, y_true, y_pred):
-        intersection = tf.reduce_sum(y_true * y_pred, axis=[1, 2, 3])
-        union = tf.reduce_sum(y_true, axis=[1, 2, 3]) + tf.reduce_sum(y_pred, axis=[1, 2, 3])
-        dice = tf.reduce_mean((2 * intersection + self.dice_smooth) / (union + self.dice_smooth), axis=0)
-
-        return 1 - dice
+        smooth = K.epsilon()
+        y_pred = tf.cast(y_pred > 0.5, tf.float32)
+        y_true = tf.cast(y_true, tf.float32)
+        intersection = K.sum(K.abs(y_true * y_pred), axis=-1)
+        return 1 - (2. * intersection + smooth) / (K.sum(K.square(y_true), -1) + K.sum(K.square(y_pred), -1) + smooth)
 
     def call(self, y_true, y_pred):
-        y_pred = tf.convert_to_tensor(y_pred)
-        if not y_pred.dtype.is_floating:
-            y_pred = tf.cast(y_pred, tf.float32)
-
         return self.alpha * self.focal_loss(y_true, y_pred) + self.dice_loss(y_true, y_pred)
 
     def get_config(self):
