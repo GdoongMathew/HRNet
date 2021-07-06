@@ -91,7 +91,13 @@ def numpy_augmentation(img, mask):
 
     img_dtype = img.dtype
     mask_dtype = mask.dtype
+    img_shape = img.shape
+    mask_shape = mask.shape
     img, mask = tf.numpy_function(_aug, [img, mask], [img_dtype, mask_dtype])
+
+    img = tf.reshape(img, img_shape)
+    mask = tf.reshape(mask, mask_shape)
+
     return img, mask
 
 
