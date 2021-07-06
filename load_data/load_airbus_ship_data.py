@@ -76,7 +76,6 @@ def batch_augmentation():
 
 def numpy_augmentation(img, mask):
 
-    @ tf.function
     def _aug(_img, _mask):
         _img = tf.keras.preprocessing.image.random_brightness(_img, (-0.2, 0.2))
 
@@ -84,7 +83,7 @@ def numpy_augmentation(img, mask):
         _mask_shape = _mask.shape
 
         _img = np.concatenate([_img, _mask], axis=-1)
-        _img = tf.keras.preprocessing.image.random_shift(_img, 0.3, 0.3, channel_axis=3, fill_mode='constant')
+        _img = tf.keras.preprocessing.image.random_shift(_img, 0.3, 0.3, channel_axis=2, fill_mode='constant')
 
         _img, _mask = _img[:, :, :_img_shape[-1]], _img[:, :, _mask_shape[-1]:]
         return _img, _mask
