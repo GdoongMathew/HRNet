@@ -394,11 +394,9 @@ def HRNet(channel_list,
     x = UpSampling2D(2, data_format=data_format, interpolation='bilinear')(x)
 
     if num_classes == 2:
-        x = Conv2D(1, 1, padding='same')(x)
-        x = Activation('sigmoid', dtype='float32')(x)
+        x = Conv2D(1, 1, padding='same', activation='sigmoid', dtype='float32')(x)
     else:
-        x = Conv2D(num_classes, 1, padding='same')(x)
-        x = Activation('softmax', dtype='float32')(x)
+        x = Conv2D(num_classes, 1, padding='same', activation='softmax', dtype='float32')(x)
 
     model = Model(inputs=ini_inputs, outputs=x, name=name)
 
