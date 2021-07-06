@@ -78,14 +78,14 @@ def numpy_augmentation(img, mask):
 
     def _aug(_img, _mask):
         _img = tf.keras.preprocessing.image.random_brightness(_img, (-0.2, 0.2))
+        _img = _img.astype('uint8')
 
         _img_shape = _img.shape
-        _mask_shape = _mask.shape
 
         _img = np.concatenate([_img, _mask], axis=-1)
         _img = tf.keras.preprocessing.image.random_shift(_img, 0.3, 0.3, channel_axis=2, fill_mode='constant')
 
-        _img, _mask = _img[:, :, :_img_shape[-1]], _img[:, :, _mask_shape[-1]:]
+        _img, _mask = _img[:, :, :_img_shape[-1]], _img[:, :, _img_shape[-1]:]
         return _img, _mask
 
     img_dtype = img.dtype
