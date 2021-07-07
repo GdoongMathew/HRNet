@@ -41,6 +41,20 @@ def cyclical_step_decay(initial_lr, cycle_step=30, min_lr=1e-8, max_epochs=3000,
     return _rate_sch
 
 
+def dice(y_true, y_pred, smooth=1.):
+    y_true = tf.cast(y_true, tf.float32)
+    intersection = K.sum(y_true * y_pred, axis=[1, 2, 3])
+    union = K.sum(y_true, axis=[1, 2, 3]) + K.sum(y_pred, axis=[1, 2, 3])
+    return (2. * intersection + smooth) / (union + smooth)
+
+
+def focal_loss(y_true, y_pred, alpha=0.8, gamma=2.):
+    y_true = tf.cast(y_true, tf.float32)
+    bce = K.binary_crossentropy(y_true, y_pred)
+    bce_exp = K.exp(-bce)
+    return alpha * K.pow((1 - bce_exp), gamma) * bce
+
+
 class DiceFocalLoss(Loss):
     def __init__(self, alpha=10.0, focal_alpha=0.8, focal_gamma=2.0, dice_smooth=1.0, *args, **kwargs):
         self.alpha = alpha
@@ -49,21 +63,11 @@ class DiceFocalLoss(Loss):
         self.dice_smooth = dice_smooth
         super(DiceFocalLoss, self).__init__(*args, **kwargs)
 
-    def focal_loss(self, y_true, y_pred):
-        y_true = K.cast(y_true, K.floatx())
-        bce = K.binary_crossentropy(y_true, y_pred)
-        bce_exp = K.exp(-bce)
-        focal_loss = K.mean(self.focal_alpha * K.pow((1 - bce_exp), self.focal_gamma) * bce)
-        return focal_loss
-
-    def dice_loss(self, y_true, y_pred):
-        smooth = K.epsilon()
-        y_true = tf.cast(y_true, tf.float32)
-        intersection = K.sum(K.abs(y_true * y_pred), axis=-1)
-        return -K.log((2 * intersection + smooth) / (K.sum(y_true) + K.sum(y_pred) + smooth))
-
     def call(self, y_true, y_pred):
-        return self.alpha * self.focal_loss(y_true, y_pred) + self.dice_loss(y_true, y_pred)
+        _f_loss = focal_loss(y_true, y_pred, alpha=self.focal_alpha, gamma=self.focal_gamma)
+        dice_val = dice(y_true, y_pred, smooth=self.dice_smooth)
+
+        return self.alpha * _f_loss - K.log(dice_val)
 
     def get_config(self):
         base_config = super(DiceFocalLoss, self).get_config()
@@ -77,5 +81,23 @@ class DiceFocalLoss(Loss):
         return base_config
 
 
+class DiceBCELoss(Loss):
+    def __init__(self, alpha=1., dice_smooth=1., *args, **kwargs):
+        self.alpha = alpha
+        self.dice_smooth = dice_smooth
+        super(DiceBCELoss, self).__init__(*args, **kwargs)
 
+    def call(self, y_true, y_pred):
 
+        dice_val = dice(y_true, y_pred, smooth=self.dice_smooth)
+        bce = K.binary_crossentropy(y_true, y_pred)
+        return self.alpha * bce - K.log(dice_val)
+
+    def get_config(self):
+        base_config = super(DiceBCELoss, self).get_config()
+        base_config.update({
+            'alpha': self.alpha,
+            'dice_smooth': self.dice_smooth
+        })
+
+        return base_config
